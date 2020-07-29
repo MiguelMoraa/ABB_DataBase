@@ -74,6 +74,7 @@ VALUES (1,'HPP Systems','Pachuca','Programación','2020-01-02','2020-01-09','456
        (1,'Ford','Irapuato','Programación','2020-06-28','2020-06-29','4598987','Validación de SafeMove 2'),
        (1,'Nissan','Aguascalientes','Programación','2020-05-30','2020-06-21','4586295','Proyecto de prensas');
 
+ALTER TABLE ABB_Service ADD Stock INT  UNSIGNED NOT NULL DEFAULT 10;
 ALTER TABLE ABB_Service ADD Saler CHAR(50); /*Modifica la tabla añadiendo una columna*/
 ALTER TABLE ABB_Service DROP COLUMN Saler; /*Modifica la tabla  Elimina una columna*/
 /*ALTER TABLE ABB_Service RENAME Servicios_ABB; /*Modifica el nombre de la tabla*/
@@ -94,7 +95,6 @@ SELECT Begin_Date FROM ABB_Service WHERE City IN ('Puebla',
                                                   'Guadalajara'); /*Obtener datos dentro de una lista*/
 SELECT DISTINCT City FROM ABB_Service; /*Visualizar datos únicos repetidos solo aprecen una vez*/
 SELECT Order_Handler_ID AS Admin, City AS Ciudad FROM ABB_Service AS ABB_Servicio; /*Asigna un alias a la columna y tabla*/
-
 UPDATE ABB_Service SET Comments = "Al right" WHERE City = 'Pachuca'; /*Actualiza los datos de la tabla puntualmente*/
 UPDATE ABB_Service SET Comments = "Cambio de Robot WaterJet" WHERE City = 'Pachuca';
 UPDATE ABB_Service SET Comments = "Prueba de Cambio" WHERE Service_ID = 20; /*Se recomianda modificar con el ID*/
@@ -296,10 +296,99 @@ FROM Field_Service_Engineers AS FSE
   INNER JOIN Order_Handlers_and_Salers AS O_H_S ON ABB_S.Order_Handler_ID = O_H_S.Order_Handler_ID
                                                    AND O_H_S.Alias IS NOT NULL;
 
-SELECT Field_Service_Engineers.Name, ABB_Service.City FROM Field_Service_Engineers CROSS JOIN ABB_Service ORDER BY Name DESC; /*A cada FSe se le asigna una servicio ya creado (Ciudad)*/
+SELECT Field_Service_Engineers.Name, ABB_Service.City FROM Field_Service_Engineers CROSS JOIN ABB_Service ORDER BY Name DESC; /*A cada FSE se le asigna una servicio ya creado (Ciudad)*/
 
 INSERT INTO Service_FSE (Service_ID, FSE_ID) SELECT Service_ID,FSE_ID FROM Field_Service_Engineers CROSS JOIN ABB_Service;
 
 SELECT Field_Service_Engineers.Name, Field_Service_Engineers.Alias, Field_Service_Engineers.Location
 FROM Field_Service_Engineers
 INNER JOIN Service_FSE ON Field_Service_Engineers.FSE_ID = Service_FSE.FSE_ID;
+
+DROP VIEW IF EXISTS Ciudades_FSE_VW; /*Elimina la vista si existe (No se requiere si tenemos REPLACE abajo)*/
+CREATE OR REPLACE VIEW Ciudades_FSE_VW AS /*Crea a o remplaza la vista y se puede tratar como una tabla nomral*/
+SELECT FSE.FSE_ID,
+       FSE.Name,
+       FSE.Last_Name,
+       FSE.Alias,
+       FSE.Location,
+       COUNT(FSE.FSE_ID) AS Ciudades
+FROM Field_Service_Engineers AS FSE
+  INNER JOIN Service_FSE ON FSE.FSE_ID = Service_FSE.FSE_ID
+            AND Service_FSE.Begin_Date >= CURDATE() - INTERVAL 5 DAY
+  GROUP BY FSE.FSE_ID;
+
+SHOW TABLES;
+
+DROP PROCEDURE IF EXISTS Proc; /*Elimina procedimiento... No es posible editar un Prodecure se debe eliminar y volver a crear*/
+DELIMITER //
+CREATE PROCEDURE Proc(FSE_ID INT, Service_ID INT, OUT Cantidad INT)
+BEGIN
+  SET Cantidad = (SELECT Stock FROM ABB_Service WHERE ABB_Service.Service_ID = Service_ID);
+  IF Cantidad > 0 THEN
+    INSERT INTO Service_FSE(Service_ID,FSE_ID)
+    VALUES(Service_ID,FSE_ID);
+    UPDATE ABB_Service SET Stock = Stock -1  WHERE ABB_Service.Service_ID = Service_ID;
+    SET Cantidad = Cantidad -1;
+  /*ELSEIF (Condición)*/
+  ELSE
+      SELECT "No es posible realizar el Servicio" AS Mensaje;
+    END IF;
+END//
+DELIMITER ;
+
+/*Obtener valores de los procedures*/
+SET @Cantidad = -1;
+CALL Proc (5, 10, @Cantidad);
+SELECT @Cantidad; /*cuentra el Valor de la varaible*/
+
+SELECT name FROM mysql.proc WHERE db = database() AND TYPE = 'PROCEDURE'; /*Muestra todos los procediemintos de la base de datos*/
+
+DROP PROCEDURE IF EXISTS Tipo;
+DELIMITER //
+CREATE PROCEDURE Tipo(FSE_ID INT)
+BEGIN
+  SET @Cantidad = (SELECT COUNT(*) FROM Service_FSE
+                  WHERE Service_FSE.FSE_ID = FSE_ID);
+  CASE
+    WHEN @Cantidad > 20 THEN
+      SELECT "Excelente" AS Mensaje;
+    WHEN @Cantidad > 10 AND @Cantidad < 20 THEN
+      SELECT "Bueno" AS Mensaje;
+    WHEN @Cantidad > 5 AND @Cantidad < 10 THEN
+      SELECT "Regular" AS Mensaje;
+    ELSE
+      SELECT "Malo" AS Mensaje;
+  END CASE;
+END//
+DELIMITER ;
+
+CALL Tipo (2);
+
+DROP PROCEDURE IF EXISTS Service_Random;
+DELIMITER //
+CREATE PROCEDURE Service_Random()
+BEGIN
+  SET @Iteracion = 0;
+  WHILE @Iteracion < 5 DO
+    SELECT Service_ID, City FROM ABB_Service ORDER BY RAND() LIMIT 1;
+    SET @Iteracion = @Iteracion + 1;
+  END WHILE;
+END//
+DELIMITER ;
+
+CALL Service_Random;
+
+DROP PROCEDURE IF EXISTS Service_Random_2;
+DELIMITER //
+CREATE PROCEDURE Service_Random_2()
+BEGIN
+  SET @Iteracion = 0;
+  REPEAT
+    SELECT Service_ID, City FROM ABB_Service ORDER BY RAND() LIMIT 1;
+    SET @Iteracion = @Iteracion + 1;
+  UNTIL @iteracion >= 5
+  END REPEAT;
+END//
+DELIMITER ;
+
+CALL Service_Random_2;
