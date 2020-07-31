@@ -392,3 +392,41 @@ END//
 DELIMITER ;
 
 CALL Service_Random_2;
+
+/*Bloqueod*/
+
+START TRANSACTION; /*Inicia la trasacción*/
+  SET @Service_ID = 22, @FSE_ID = 2;
+
+  UPDATE ABB_Service SET Stock = Stock - 1 WHERE Service_ID = @Service_ID;
+  SELECT Stock FROM  ABB_Service WHERE Service_ID = @Service_ID;
+
+  INSERT INTO Service_FSE(Service_ID, FSE_ID)
+  VALUES(@Service_ID,@FSE_ID);
+  SELECT * FROM Service_FSE;
+COMMIT; /*Termina Trasacción Que el valor de la trasaccoin persista*/
+ROLLBACK; /*Hace un B-Start (Regresa hasta la ultima vez de no marco error)*/
+
+DROP PROCEDURE IF EXISTS Proc_2;
+DELIMITER //
+CREATE PROCEDURE Proc_2(FSE_ID INT, Service_ID INT)
+BEGIN
+  DECLARE EXIT HANDLER FOR SQLEXCEPTION /*Cuando ocurra un erro*/
+  BEGIN
+    ROLLBACK;
+  END;
+  START TRANSACTION;
+    INSERT INTO Service_FSE(Service_ID,FSE_ID)
+    VALUES(Service_ID,FSE_ID);
+    UPDATE ABB_Service SET Stock = Stock - 1  WHERE ABB_Service.Service_ID = Service_ID;
+  COMMIT;
+END//
+DELIMITER ;
+
+SELECT * FROM Service_FSE; /*Agrga un registro (341)*/
+SELECT Stock FROM ABB_Service WHERE Service_ID = 14; /*Reduce el Stick de 10 a 9*/
+CALL Proc_2 (10,14); 
+SELECT Stock FROM ABB_Service WHERE Service_ID = 14;
+CALL Proc_2 (100,14); /*Dato Erroneo*/
+SELECT Stock FROM ABB_Service WHERE Service_ID = 14; /*Aún posee 9 en stock*/
+SELECT * FROM Service_FSE; /*Aún tiene 342*/
