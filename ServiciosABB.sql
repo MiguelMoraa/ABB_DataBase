@@ -393,7 +393,7 @@ DELIMITER ;
 
 CALL Service_Random_2;
 
-/*Bloqueod*/
+/*Bloqueos*/
 
 START TRANSACTION; /*Inicia la trasacción*/
   SET @Service_ID = 22, @FSE_ID = 2;
@@ -430,3 +430,190 @@ SELECT Stock FROM ABB_Service WHERE Service_ID = 14;
 CALL Proc_2 (100,14); /*Dato Erroneo*/
 SELECT Stock FROM ABB_Service WHERE Service_ID = 14; /*Aún posee 9 en stock*/
 SELECT * FROM Service_FSE; /*Aún tiene 342*/
+
+SHOW ENGINES;
+
+SET storage_engine=INNODB; /*Modificar elm otor de almacenamiento*/
+SHOW TABLE STATUS WHERE `Name` = 'ABB_Service' \G; /*Cononcer elm otor de almacenamoento*/
+
+CREATE TABLE tabla_innodb (id int, value int) ENGINE=INNODB; /*Crear tabla con motor INNODB*/
+CREATE TABLE tabla_myisam (id int, value int) ENGINE=MYISAM; /*Crear tabla con motor MYISAM*/
+CREATE TABLE tabla_default (id int, value int);
+
+/*Eventos*/
+
+CREATE TABLE test(
+ evento VARCHAR(50),
+ fecha DATETIME 
+);
+
+SET GLOBAL event_scheduler = ON; /*Habilitar servidor para ejecutar evrntos*/
+
+CREATE EVENT insertion_event /*Crea evento para insertar registro en tabla casda min*/
+ON SCHEDULE AT CURRENT_TIMESTAMP + INTERVAL 1 MINUTE /*Nombre de evento no mas de 64 char (insertion_event)*/
+DO INSERT INTO test VALUES ('Evento 1', NOW());
+
+ON SCHEDULE AT '2018-12-31 12:00:00' /*Ejecuta el evento en una fecha específica*/
+
+DELIMITER //
+
+CREATE EVENT insertion_event_2
+ON SCHEDULE AT CURRENT_TIMESTAMP + INTERVAL 1 MINUTE
+DO
+BEGIN  /*Si se requiere ejecutar mas de una sentencia en el evento se utiliza BEGIN y END*/
+ INSERT INTO test VALUES ('Evento 1', NOW());
+ INSERT INTO test VALUES ('Evento 2', NOW());
+ INSERT INTO test VALUES ('Evento 3', NOW());
+END //
+
+DELIMITER ;
+
+SHOW events\G; /*Muestra eventos creados*/
+DROP EVENT insertion_event_2; /*Elimina evento*/
+
+/*Una vez el evento haya expirado, este, será eliminado de forma automática. Si nosotros no queremos que esto ocurra debemos de apoyarnos de ON COMPLETION*/
+
+ON SCHEDULE AT CURRENT_TIMESTAMP + INTERVAL 1 MINUTE
+ON COMPLETION PRESERVE
+
+CREATE EVENT nombre_evento /*Eventos en Store Procedures*/
+ON SCHEDULE AT 'fecha de ejeución' 
+DO
+CALL store_procedure();
+
+/*Evento que se ejecuta un minuto despues de las 18:30*/
+CREATE EVENT insertion_event
+ON SCHEDULE EVERY 1 MINUTE STARTS '2018-07-07 18:30:00'
+DO INSERT INTO test VALUES ('Evento 1', NOW());
+
+/*Evento que se ejecuta en un rango de fechas*/
+CREATE EVENT insertion_event
+ON SCHEDULE EVERY 1 MINUTE STARTS '2018-07-07 18:30:00'
+ENDS '2018-07-07 19:00:00'
+DO INSERT INTO test VALUES ('Evento 1', NOW());
+
+ALTER EVENT nombre_evento /*Desactivar Evento */
+DISABLE; 
+
+ALTER EVENT nombre_evento /*Activar Evento*/
+ENABLE;
+
+SET GLOBAL event_scheduler = OFF; /*Detener eventos Desshabilitar el servidor*/
+
+CREATE
+    [DEFINER = { user | CURRENT_USER }]
+    EVENT
+    [IF NOT EXISTS]
+    event_name
+    ON SCHEDULE schedule
+    [ON COMPLETION [NOT] PRESERVE]
+    [ENABLE | DISABLE | DISABLE ON SLAVE]
+    [COMMENT 'string']
+    DO event_body;
+
+schedule:
+    AT timestamp [+ INTERVAL interval]
+  | EVERY interval
+    [STARTS timestamp [+ INTERVAL interval]]
+    [ENDS timestamp [+ INTERVAL interval]]
+
+interval:
+    quantity {YEAR | QUARTER | MONTH | DAY | HOUR | MINUTE |
+              WEEK | SECOND | YEAR_MONTH | DAY_HOUR | DAY_MINUTE |
+              DAY_SECOND | HOUR_MINUTE | HOUR_SECOND | MINUTE_SECOND}
+
+/*Cursores*/
+
+/*Solo se utilizan en Stroe Procedures*/
+
+DELIMITER //
+
+DROP PROCEDURE IF EXISTS facilito_procedure//
+CREATE PROCEDURE facilito_procedure()
+BEGIN
+  DECLARE var_id INTEGER;
+  DECLARE var_paginas INTEGER; /*Declaración de Variables*/
+  DECLARE var_titulo VARCHAR(255);
+  DECLARE var_final INTEGER DEFAULT 0;
+  DECLARE cursor1 CURSOR FOR SELECT libro_id, titulo, paginas FROM libros; /*cra cursor a partir de consulta*/
+  DECLARE CONTINUE HANDLER FOR NOT FOUND SET var_final = 1; /*Una vez todos los regirstros de la consulta haya interado el valor var_final cambia a 1*/
+  OPEN cursor1; /*Comenzar iteración de elementos (Abre cursor)*/
+  bucle: LOOP /*Se controla iteración por LOOP a partir de la variable var_fnial*/
+    FETCH cursor1 INTO var_id, var_titulo, var_paginas; /*Obtiene la fila actual de la consulta y avanza al sig elemento (Orden es importante en variables)*/
+    IF var_final = 1 THEN
+      LEAVE bucle;
+    END IF;
+    UPDATE libros SET paginas = var_paginas + 10 WHERE libro_id = var_id;
+    SELECT
+      var_titulo AS  'titulo',
+      var_paginas AS 'Anterior',
+      paginas AS 'Incremento'
+    FROM libros WHERE libro_id = var_id;
+  END LOOP bucle;
+  CLOSE cursor1; /*Carrar cusor*/
+END//
+
+DELIMITER ;
+
+call facilito_procedure();
+
+/*Respaldo de una sola base de datos*/
+
+mysqldump base_de_datos > ruta/archivo_respaldo.sql
+mysqldump --databases db1 db2 db3 > ruta/archivo_respaldo.sql /*Realoizar respaldos de multiples dases de datos*/
+mysqldump base_de_datos tabla1 > ruta/archivo_respaldo.sql /*Respaldo de una sola tabla*/
+mysqldump base_de_datos tabla1 tabla3 > ruta/archivo_respaldo.sql /*Respaldo de multiples tablas*/
+
+/*Triggers*/
+
+ALTER TABLE Order_Handlers_and_Salers ADD COLUMN Cantidad_Service INT DEFAULT 0;
+SELECT * FROM Order_Handlers_and_Salers\G;
+
+DELIMITER //
+CREATE TRIGGER AFTER_INSERT_Update_Cantidad
+AFTER INSERT ON ABB_Service
+FOR EACH ROW
+BEGIN
+  UPDATE Order_Handlers_and_Salers SET Cantidad_Service = Cantidad_Service + 1 WHERE Order_Handler_ID = NEW.Order_Handler_ID; /*NEW refiere al registo actual que se ha insertado*/
+END;
+//
+DELIMITER ;
+
+INSERT INTO ABB_Service (Order_Handler_ID, Service_Order, Begin_Date, City, End_Date)
+VALUES (2,"4356789","2020-08-03", "Irapuato","2020-08-03");
+SELECT * FROM Order_Handlers_and_Salers WHERE Cantidad_Service = 1 \G; /*Cantidad aumento a un por el trigger*/
+
+DELIMITER //
+CREATE TRIGGER AFTER_DELETE_Update_Cantidad
+AFTER DELETE ON ABB_Service
+FOR EACH ROW
+BEGIN
+  UPDATE Order_Handlers_and_Salers SET Cantidad_Service = Cantidad_Service - 1 WHERE Order_Handler_ID = OLD.Order_Handler_ID; /*OLD refiere al registo eliminado*/
+END;
+//
+DELIMITER ;
+
+SELECT Service_ID, CIty FROM ABB_Service;
+
+DELETE FROM ABB_Service WHERE Service_ID = 23;
+SELECT * FROM Order_Handlers_and_Salers\G; /*Se elimina el registro por trigger*/
+
+DELIMITER //
+CREATE TRIGGER AFTER_UPDATE_Update_Cantidad
+AFTER UPDATE ON ABB_Service
+FOR EACH ROW
+BEGIN
+  IF (NEW.Order_Handler_ID != OLD.Order_Handler_ID) THEN 
+    UPDATE Order_Handlers_and_Salers SET Cantidad_Service = Cantidad_Service + 1 WHERE Order_Handler_ID = NEW.Order_Handler_ID; /*NEW refiere al registo actual que se ha insertado*/
+    UPDATE Order_Handlers_and_Salers SET Cantidad_Service = Cantidad_Service - 1 WHERE Order_Handler_ID = OLD.Order_Handler_ID; /*OLD refiere al registo eliminado*/
+  END IF;
+END;
+//
+DELIMITER ;
+
+UPDATE ABB_Service SET Order_Handler_ID = 1 WHERE Service_ID = 22;
+SELECT Order_Handler_ID, Name, Cantidad_Service FROM Order_Handlers_and_Salers;
+
+SHOW TRIGGERS\G;
+
+DROP TRIGGER IF EXISTS ABB.AFTER_UPDATE_Update_Cantidad; /*Para eliminar un trugger de pone la base de datos (ABB.)*/
